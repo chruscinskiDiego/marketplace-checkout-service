@@ -101,7 +101,7 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
                 return;
             }
 
-            await this.channel.assertExchange(exchange, 'topic', {durable: true}); //sobrevive à restarts no rabbitmq (ferramenta externa)
+            await this.channel.assertExchange(exchange, 'topic', { durable: true }); //sobrevive à restarts no rabbitmq (ferramenta externa)
 
             const messageBuffer = Buffer.from(JSON.stringify(message));
 
@@ -117,7 +117,7 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
             );
 
             // o fluxo não para, exceto para esse caso, pois interfere no fluxo concreto, (no catch não há throw...)
-            if(!published){
+            if (!published) {
                 throw new Error('Failed to publish message to RabbitMQ');
             }
 
@@ -131,4 +131,74 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
         }
 
     }
+
+    async subscribeToQueue(
+        queueName: string,
+        exchange: string,
+        routingKey: string,
+        callback: (message: any) => Promise<void>
+    ): Promise<void> {
+
+        try {
+
+            if (!this.channel) {
+                throw new Error('RabbitMQ channel not available');
+            }
+
+            await this.channel.assertExchange(exchange, 'topic', {
+                durable: true
+            });
+
+            const queue = await this.channel.assertQueue(queueName, {
+                durable: true,
+                arguments: {
+                    'x-message-ttl': 86400000,
+                    'x-max-length': 10000
+                }
+            });
+
+            await this.channel.bindQueue(queue.queue, exchange, routingKey);
+
+            //qtd de mensagens que podem ser processadas por vez
+            await this.channel.prefetch(1);
+
+            await this.channel.consume(queue.queue, async (msg) => {
+
+                if (msg) {
+
+                    try {
+
+                        const message = JSON.parse(msg.content.toString());
+
+                        this.logger.log(`Message received from queue: ${queueName}`);
+                        this.logger.debug(`Messagem content: ${JSON.stringify(message)}`);
+
+                        await callback(message);
+
+                        //aceita a mensagem e tira ela da fila
+                        this.channel.ack(msg);
+
+                        this.logger.log(`✅ Message processed successfully from queue: ${queueName}`);
+
+
+                    } catch (error) {
+
+                        this.logger.error(`❌ Error processing message: ${error}`);
+                        this.channel.nack(msg, false, false); //dead letter queue
+
+                    }
+
+                }
+
+            })
+
+
+        } catch (error) {
+
+            this.logger.error(`❌ Error subscribing to queue ${queueName}: `, error);
+
+        }
+
+    }
+
 }
