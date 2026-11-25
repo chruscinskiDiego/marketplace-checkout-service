@@ -9,7 +9,8 @@ import { PaymentQueueService } from './payment-queue/payment-queue.service';
     PaymentQueueService
   ],
   exports: [
-    RabbitmqService
+    RabbitmqService,
+    PaymentQueueService
   ],
   imports: [
     ConfigModule
